@@ -18,7 +18,7 @@ import static org.infinispan.commons.util.StringPropertyReplacer.replaceProperti
  * @author Gabriel Francisco &lt;gabfssilva@gmail.com&gt;
  * @author gustavonalle
  */
-@Namespace(uri = "urn:infinispan:store:mongodb:9.4", root = "mongodbStore")
+@Namespace(uri = "urn:infinispan:store:mongodb:11.0.15", root = "mongodbStore")
 @Namespace(root = "mongodbStore")
 public class MongoDBCacheStoreConfigurationParser implements ConfigurationParser {
 
