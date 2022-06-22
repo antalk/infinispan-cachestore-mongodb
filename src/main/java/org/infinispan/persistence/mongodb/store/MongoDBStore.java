@@ -1,25 +1,32 @@
 package org.infinispan.persistence.mongodb.store;
 
-import net.jcip.annotations.ThreadSafe;
+import java.io.IOException;
+import java.util.EnumSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CompletionStage;
+import java.util.function.Predicate;
+
 import org.infinispan.commons.configuration.ConfiguredBy;
-import org.infinispan.commons.marshall.StreamingMarshaller;
+import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.persistence.Store;
-import org.infinispan.executors.ExecutorAllCompletionService;
-import org.infinispan.filter.KeyFilter;
-import org.infinispan.marshall.core.MarshalledEntry;
-import org.infinispan.metadata.InternalMetadata;
-import org.infinispan.persistence.TaskContextImpl;
+import org.infinispan.commons.util.IntSet;
+import org.infinispan.metadata.Metadata;
 import org.infinispan.persistence.mongodb.cache.MongoDBCache;
 import org.infinispan.persistence.mongodb.cache.MongoDBCacheImpl;
 import org.infinispan.persistence.mongodb.configuration.MongoDBStoreConfiguration;
-import org.infinispan.persistence.spi.AdvancedLoadWriteStore;
+import org.infinispan.persistence.mongodb.store.MongoDBEntry.ExpirationUnit;
 import org.infinispan.persistence.spi.InitializationContext;
+import org.infinispan.persistence.spi.MarshallableEntry;
+import org.infinispan.persistence.spi.NonBlockingStore;
 import org.infinispan.persistence.spi.PersistenceException;
+import org.infinispan.util.concurrent.BlockingManager;
+import org.reactivestreams.Publisher;
 
-import java.io.IOException;
-import java.util.Date;
-import java.util.List;
-import java.util.concurrent.Executor;
+import io.reactivex.rxjava3.core.Flowable;
+import io.reactivex.rxjava3.processors.UnicastProcessor;
+import net.jcip.annotations.ThreadSafe;
 
 /**
  * AdvancedLoadWriteStore implementation based on MongoDB. <br/>
@@ -32,23 +39,76 @@ import java.util.concurrent.Executor;
 @ThreadSafe
 @Store
 @ConfiguredBy(MongoDBStoreConfiguration.class)
-public class MongoDBStore<K, V> implements AdvancedLoadWriteStore<K, V> {
+public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
    private InitializationContext context;
 
    private MongoDBCache<K, V> cache;
    private MongoDBStoreConfiguration configuration;
 
+   private BlockingManager blockingManager;
+   
    @Override
-   public void init(InitializationContext ctx) {
-      context = ctx;
-      configuration = ctx.getConfiguration();
-      try {
-         cache = new MongoDBCacheImpl<>(configuration, ctx.getTimeService());
-      } catch (Exception e) {
-         throw new PersistenceException(e);
-      }
+   public Set<Characteristic> characteristics() {
+      return EnumSet.of(Characteristic.BULK_READ, Characteristic.EXPIRATION, Characteristic.SHAREABLE);
    }
+   
+   	@Override
+	public CompletionStage<Void> start(InitializationContext ctx) {
+   		this.blockingManager = ctx.getBlockingManager();
+   		return blockingManager.runBlocking(() -> {
+   			this.context = ctx;
+   			this.configuration = ctx.getConfiguration();
+   			try {
+   				cache = new MongoDBCacheImpl<>(configuration, ctx.getTimeService());
+   				
+   				cache.start();
+	   		      if (configuration.purgeOnStartup()) {
+	   		         cache.clear();
+	   		      }
+   				
+   			} catch (Exception e) {
+   				throw new PersistenceException(e);
+   			}
+         }, "mongodbstore-start");
+	}
+   	
+   	
+   	
+   	@Override
+   	public Publisher<MarshallableEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter, boolean includeValues) {
+   		return Flowable.defer(() -> {
+   			UnicastProcessor<MarshallableEntry<K, V>> unicastProcessor = UnicastProcessor.create();
+   			blockingManager.runBlocking(() -> {
 
+   			
+		   		//A while loop since we have to hit the db again for paging.
+		        boolean shouldContinue = true;
+		        byte[] id = null;
+		        while (shouldContinue) {
+		           final List<MongoDBEntry<K, V>> entries = cache.getPagedEntries(id);
+		           shouldContinue = !entries.isEmpty();
+		           if (shouldContinue) {
+			             for (final MongoDBEntry<K, V> entry : entries) {
+			                final K marshalledKey = (K) toObject(entry.getKeyBytes());
+			                if (filter == null || filter.test(marshalledKey)) {
+			                   final MarshallableEntry<K, V> marshalledEntry = getMarshalledEntry(entry);
+			                   if (marshalledEntry != null) {
+			                	   unicastProcessor.onNext(marshalledEntry);
+			                   }
+			                }
+			             }
+			             //get last key so we can get more entries.
+			             id = entries.get(entries.size() - 1).getKeyBytes();
+		           }
+		        }
+		        unicastProcessor.onComplete();
+   			},"mongodbstore-publish");
+   			return unicastProcessor;
+   		});
+   	}
+   	
+   
+   	/*
    @Override
    public void process(final KeyFilter<? super K> filter, final CacheLoaderTask<K, V> task, Executor executor, boolean fetchValue, boolean fetchMetadata) {
       ExecutorAllCompletionService eacs = new ExecutorAllCompletionService(executor);
@@ -71,7 +131,7 @@ public class MongoDBStore<K, V> implements AdvancedLoadWriteStore<K, V> {
                   }
                   final K marshalledKey = (K) toObject(entry.getKeyBytes());
                   if (filter == null || filter.accept(marshalledKey)) {
-                     final MarshalledEntry<K, V> marshalledEntry = getMarshalledEntry(entry);
+                     final MarshallableEntry<K, V> marshalledEntry = getMarshalledEntry(entry);
                      if (marshalledEntry != null) {
                         task.processEntry(marshalledEntry, taskContext);
                      }
@@ -88,60 +148,90 @@ public class MongoDBStore<K, V> implements AdvancedLoadWriteStore<K, V> {
          throw new PersistenceException("Execution exception!", eacs.getFirstException());
       }
 
+   }*/
+
+   @Override
+   public CompletionStage<Long> size(IntSet segments) {
+      return blockingManager.supplyBlocking(() -> {
+    	  return new Long(cache.size());
+    	  
+      }, "mongodbstore-size");
    }
 
    @Override
-   public int size() {
-      return cache.size();
+	public CompletionStage<Void> clear() {
+	   return blockingManager.runBlocking(() -> {
+	    	  cache.clear();
+	    	  
+	   }, "mongodbstore-clear");
+	}
+  
+   
+
+   	@Override
+   	public Publisher<MarshallableEntry<K, V>> purgeExpired() {
+   		
+   		return Flowable.defer(() -> {
+   			UnicastProcessor<MarshallableEntry<K, V>> unicastProcessor = UnicastProcessor.create();
+   			blockingManager.runBlocking(() -> {
+   		
+   				byte[] lastKey = null;
+   		        boolean shouldContinue = true;
+   		        while (shouldContinue) {
+   		           List<MongoDBEntry<K, V>> expired = cache.removeExpiredData(lastKey);
+   		           expired.forEach(kvMongoDBEntry -> unicastProcessor.onNext(getMarshalledEntry(kvMongoDBEntry)));
+   		           shouldContinue = !expired.isEmpty();
+   		           if (shouldContinue) {
+   		              lastKey = expired.get(expired.size() - 1).getKeyBytes();
+   		           }
+   		        }
+   		        unicastProcessor.onComplete();
+   			},"mongodbstore-purge");
+   			return unicastProcessor;
+   		});
    }
+
+   	
+   	@Override
+	public CompletionStage<Void> write(int segment, MarshallableEntry<? extends K, ? extends V> entry) {
+   		return blockingManager.runBlocking(() -> {
+   			MongoDBEntry.Builder<K, V> mongoDBEntryBuilder = MongoDBEntry.builder();
+   			
+   			mongoDBEntryBuilder
+   	              .keyBytes(toByteArray(entry.getKey()))
+   	              .valueBytes(toByteArray(entry.getValue()))
+   	              .expiryTime(new ExpirationUnit(entry.expiryTime(),entry.lastUsed(),entry.created()));
+
+   			if (entry.getMetadata() != null) {
+   				mongoDBEntryBuilder.metadataBytes(toByteArray(entry.getMetadata()));
+   			}
+   			
+   			
+   			MongoDBEntry<K, V> mongoDBEntry = mongoDBEntryBuilder.create();
+
+   			cache.put(mongoDBEntry);
+   		
+   		},"mongodbstore-write");
+   		
+	}
+
 
    @Override
-   public void clear() {
-      cache.clear();
-   }
-
-   @Override
-   public void purge(Executor threadPool, PurgeListener listener) {
-
-      byte[] lastKey = null;
-      boolean shouldContinue = true;
-      while (shouldContinue) {
-         List<MongoDBEntry<K, V>> expired = cache.removeExpiredData(lastKey);
-         expired.forEach(kvMongoDBEntry -> listener.entryPurged(kvMongoDBEntry.getKey(marshaller())));
-         shouldContinue = !expired.isEmpty();
-         if (shouldContinue) {
-            lastKey = expired.get(expired.size() - 1).getKeyBytes();
-         }
-      }
-   }
-
-   @Override
-   public void write(MarshalledEntry<? extends K, ? extends V> entry) {
-      MongoDBEntry.Builder<K, V> mongoDBEntryBuilder = MongoDBEntry.builder();
-
-      mongoDBEntryBuilder
-              .keyBytes(toByteArray(entry.getKey()))
-              .valueBytes(toByteArray(entry.getValue()))
-              .metadataBytes(toByteArray(entry.getMetadata()))
-              .expiryTime(entry.getMetadata() != null ? new Date(entry.getMetadata().expiryTime()) : null);
-
-      MongoDBEntry<K, V> mongoDBEntry = mongoDBEntryBuilder.create();
-
-      cache.put(mongoDBEntry);
-   }
-
-   @Override
-   public boolean delete(Object key) {
-      return cache.remove(toByteArray(key));
+   public CompletionStage<Boolean> delete(int segment, Object key) {
+      return blockingManager.supplyBlocking(() -> {
+    	  return cache.remove(toByteArray(key));
+      },"mongodbstore-delete");
    }
 
 
    @Override
-   public MarshalledEntry<K, V> load(Object key) {
-      return load(key, false);
+   public CompletionStage<MarshallableEntry<K, V>> load(int segment, Object key) {
+      return blockingManager.supplyBlocking(() -> {
+    	  return load(key, false);
+      },"mongodbstore-load");
    }
 
-   private MarshalledEntry<K, V> load(Object key, boolean binaryData) {
+   private MarshallableEntry<K, V> load(Object key, boolean binaryData) {
       MongoDBEntry<K, V> mongoDBEntry = cache.get(toByteArray(key));
 
       if (mongoDBEntry == null) {
@@ -151,20 +241,22 @@ public class MongoDBStore<K, V> implements AdvancedLoadWriteStore<K, V> {
       K k = mongoDBEntry.getKey(marshaller());
       V v = mongoDBEntry.getValue(marshaller());
 
-      InternalMetadata metadata;
+      Metadata metadata = null;
+      if (mongoDBEntry.getMetadataBytes() != null) {
+    	  metadata = (Metadata) toObject(mongoDBEntry.getMetadataBytes());
+      }
 
-      metadata = (InternalMetadata) toObject(mongoDBEntry.getMetadataBytes());
+      MarshallableEntry<K, V> entry = (MarshallableEntry<K, V>) 
+    		  context.getMarshallableEntryFactory().create(key, v, metadata, null, mongoDBEntry.getExpiryTime().getCreated(),mongoDBEntry.getExpiryTime().getLastAccess());
 
-      MarshalledEntry result = context.getMarshalledEntryFactory().newMarshalledEntry(k, v, metadata);
-
-      if (isExpired(result)) {
+      if (isExpired(mongoDBEntry)) {
          return null;
       }
 
-      return result;
+      return entry;
    }
 
-   private MarshalledEntry<K, V> getMarshalledEntry(MongoDBEntry<K, V> mongoDBEntry) {
+   private MarshallableEntry<K, V> getMarshalledEntry(MongoDBEntry<K, V> mongoDBEntry) {
 
       if (mongoDBEntry == null) {
          return null;
@@ -173,48 +265,30 @@ public class MongoDBStore<K, V> implements AdvancedLoadWriteStore<K, V> {
       K k = mongoDBEntry.getKey(marshaller());
       V v = mongoDBEntry.getValue(marshaller());
 
-      InternalMetadata metadata;
+      
+      Metadata metadata = null;
+      if (mongoDBEntry.getMetadataBytes() != null) {
+    	  metadata = (Metadata) toObject(mongoDBEntry.getMetadataBytes());
+      }
 
-      metadata = (InternalMetadata) toObject(mongoDBEntry.getMetadataBytes());
-
-      MarshalledEntry result = context.getMarshalledEntryFactory().newMarshalledEntry(k, v, metadata);
+      MarshallableEntry<K, V> result = (MarshallableEntry<K, V>) context.getMarshallableEntryFactory().create(k, v, metadata, null, mongoDBEntry.getExpiryTime().getCreated(), mongoDBEntry.getExpiryTime().getLastAccess());
       return result;
    }
 
-   @Override
-   public boolean contains(Object key) {
-      MongoDBEntry<K, V> mongoDBEntry = cache.get(toByteArray(key));
-      MarshalledEntry result = getMarshalledEntry(mongoDBEntry);
-      if (mongoDBEntry == null || isExpired(result)) {
-         return false;
-      }
-      return true;
-   }
+
 
    @Override
-   public void start() {
-      try {
-         cache.start();
-      } catch (Exception e) {
-         throw new PersistenceException(e);
-      }
-      if (configuration.purgeOnStartup()) {
-         cache.clear();
-      }
+   public CompletionStage<Void> stop() {
+      return blockingManager.runBlocking(() -> {
+    	  cache.stop();
+      },"mongodbstore-stop");
    }
 
-   @Override
-   public void stop() {
-
-      cache.stop();
-   }
-
-   private boolean isExpired(MarshalledEntry result) {
-      if (result.getMetadata() == null) {
-         return false;
-      }
-
-      return result.getMetadata().isExpired(context.getTimeService().wallClockTime());
+   private boolean isExpired(MongoDBEntry result) {
+	  if (result.getExpiryTime().getTtl() > 0 ) {
+		  return result.getExpiryTime().getTtl().compareTo(context.getTimeService().wallClockTime()) < 0;
+	  }
+	  return false;
    }
 
    private Object toObject(byte[] bytes) {
@@ -239,16 +313,9 @@ public class MongoDBStore<K, V> implements AdvancedLoadWriteStore<K, V> {
       return null;
    }
 
-   private StreamingMarshaller marshaller() {
-      return context.getMarshaller();
-   }
+   private Marshaller marshaller() {
+      return context.getPersistenceMarshaller();
 
-   public InitializationContext getContext() {
-      return context;
-   }
-
-   public void setContext(InitializationContext context) {
-      this.context = context;
    }
 
    public MongoDBCache<K, V> getCache() {

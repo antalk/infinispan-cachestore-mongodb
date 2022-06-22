@@ -19,14 +19,12 @@ public class MongoDBStoreConfigurationBuilder extends AbstractStoreConfiguration
 
    @Override
    public MongoDBStoreConfiguration create() {
-      return new MongoDBStoreConfiguration(attributes.protect(), async.create(), singletonStore.create(), connectionURI,
-              collection);
+      return new MongoDBStoreConfiguration(attributes.protect(), async.create(), connectionURI,  collection);
    }
 
    @Override
    public MongoDBStoreConfigurationBuilder read(MongoDBStoreConfiguration template) {
       this.async.read(template.async());
-      this.singletonStore.read(template.singletonStore());
 
       this.connectionURI = template.getConnectionURI();
       this.collection = template.collection();

@@ -1,5 +1,23 @@
 package org.infinispan.persistence.mongodb.cache;
 
+import static com.mongodb.client.model.Filters.and;
+import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.gt;
+import static com.mongodb.client.model.Filters.lt;
+import static com.mongodb.client.model.Filters.lte;
+import static com.mongodb.client.model.Sorts.descending;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import org.bson.Document;
+import org.bson.conversions.Bson;
+import org.bson.types.Binary;
+import org.infinispan.commons.time.TimeService;
+import org.infinispan.persistence.mongodb.configuration.MongoDBStoreConfiguration;
+import org.infinispan.persistence.mongodb.store.MongoDBEntry;
+import org.infinispan.persistence.mongodb.store.MongoDBEntry.ExpirationUnit;
+
 import com.mongodb.BasicDBObject;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
@@ -7,19 +25,6 @@ import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
-import org.bson.Document;
-import org.bson.conversions.Bson;
-import org.bson.types.Binary;
-import org.infinispan.commons.time.TimeService;
-import org.infinispan.persistence.mongodb.configuration.MongoDBStoreConfiguration;
-import org.infinispan.persistence.mongodb.store.MongoDBEntry;
-
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-
-import static com.mongodb.client.model.Filters.*;
-import static com.mongodb.client.model.Sorts.descending;
 
 /**
  * An implementation of the MongoDBCache interface.
@@ -85,15 +90,30 @@ public class MongoDBCacheImpl<K, V> implements MongoDBCache<K, V> {
    }
 
    private MongoDBEntry<K, V> createEntry(Document document) {
-      byte[] k = ((Binary) document.get("_id")).getData();
-      byte[] v = ((Binary) document.get("value")).getData();
-      byte[] m = ((Binary) document.get("metadata")).getData();
+      final byte[] k = ((Binary) document.get("_id")).getData();
+      final byte[] v = ((Binary) document.get("value")).getData();
+      
+      
+      Object md = document.get("metadata");
+      byte[] m = null;
+      if (md != null) {
+    	  m = ((Binary) document.get("metadata")).getData();
+      }
 
+      final Long ttl  = document.getLong("ttl");
+      final Long created  = document.getLong("created");
+      final Long lastaccess  = document.getLong("lastaccess");
+      
+      
+      final ExpirationUnit expiration = new ExpirationUnit(ttl, lastaccess, created);
+      
+      
       MongoDBEntry.Builder<K, V> mongoDBEntryBuilder = MongoDBEntry.builder();
 
       mongoDBEntryBuilder
               .keyBytes(k)
               .valueBytes(v)
+              .expiryTime(expiration)
               .metadataBytes(m);
 
       return mongoDBEntryBuilder.create();
@@ -119,7 +139,8 @@ public class MongoDBCacheImpl<K, V> implements MongoDBCache<K, V> {
    public List<MongoDBEntry<K, V>> removeExpiredData(byte[] lastKey) {
       long time = timeService.wallClockTime();
 
-      Bson filter = and(lte("expiryTime", new Date(time)), gt("expiryTime", new Date(-1)));
+      	// use long compares ? expirytime is a long
+      Bson filter = and(lte("ttl", time), gt("ttl", -1L));
 
       if (lastKey != null) {
          filter = and(filter, lt("_id", lastKey));
@@ -139,8 +160,10 @@ public class MongoDBCacheImpl<K, V> implements MongoDBCache<K, V> {
       Document document = new Document("_id", entry.getKeyBytes())
               .append("value", entry.getValueBytes())
               .append("metadata", entry.getMetadataBytes())
-              .append("expiryTime", entry.getExpiryTime());
-
+              .append("ttl", entry.getExpiryTime().getTtl())
+              .append("created", entry.getExpiryTime().getCreated())
+              .append("lastaccess", entry.getExpiryTime().getLastAccess());
+             
       if (containsKey(entry.getKeyBytes())) {
          collection.replaceOne(eq("_id", entry.getKeyBytes()), document);
 

@@ -5,7 +5,6 @@ import org.infinispan.commons.configuration.ConfigurationFor;
 import org.infinispan.commons.configuration.attributes.AttributeSet;
 import org.infinispan.configuration.cache.AbstractStoreConfiguration;
 import org.infinispan.configuration.cache.AsyncStoreConfiguration;
-import org.infinispan.configuration.cache.SingletonStoreConfiguration;
 import org.infinispan.persistence.mongodb.store.MongoDBStore;
 
 /**
@@ -20,9 +19,8 @@ public class MongoDBStoreConfiguration extends AbstractStoreConfiguration {
    private final String connectionURI;
    private final String collection;
 
-   public MongoDBStoreConfiguration(AttributeSet attributes, AsyncStoreConfiguration async,
-                                    SingletonStoreConfiguration singletonStore, String connectionURI, String collection) {
-      super(attributes, async, singletonStore);
+   public MongoDBStoreConfiguration(AttributeSet attributes, AsyncStoreConfiguration async, String connectionURI, String collection) {
+      super(attributes, async);
       this.connectionURI = connectionURI;
       this.collection = collection;
    }

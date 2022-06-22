@@ -30,7 +30,8 @@ public class MongoDBCacheStoreConfigurationParserTest extends AbstractInfinispan
 
    public void testMongoDBCacheStore() throws Exception {
       MongoDBStoreConfiguration store = (MongoDBStoreConfiguration) buildCacheManagerWithCacheStore("config/mongodb-config.xml");
-      assertEquals("mongodb://mongoUser:mongoPass@localhost:27017/infinispan_test_database?w=0&connectTimeoutMS=2000", store.getConnectionURI());
+      //assertEquals("mongodb://mongoUser:mongoPass@localhost:27017/infinispan_test_database?w=0&connectTimeoutMS=2000", store.getConnectionURI());
+      assertEquals("mongodb://localhost:27017/infinispan_test_database?w=0&connectTimeoutMS=2000", store.getConnectionURI());
       assertEquals("infinispan_cachestore", store.collection());
       assertFalse(store.fetchPersistentState());
       assertFalse(store.purgeOnStartup());
