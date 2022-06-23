@@ -3,11 +3,13 @@ package org.infinispan.persistence.mongodb.configuration.parser;
 import static org.infinispan.commons.util.StringPropertyReplacer.replaceProperties;
 
 import org.infinispan.commons.configuration.io.ConfigurationReader;
+import org.infinispan.commons.configuration.io.NamingStrategy;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.configuration.cache.PersistenceConfigurationBuilder;
 import org.infinispan.configuration.parsing.ConfigurationBuilderHolder;
 import org.infinispan.configuration.parsing.ConfigurationParser;
 import org.infinispan.configuration.parsing.Namespace;
+import org.infinispan.configuration.parsing.Namespaces;
 import org.infinispan.configuration.parsing.ParseUtils;
 import org.infinispan.configuration.parsing.Parser;
 import org.infinispan.persistence.mongodb.configuration.MongoDBStoreConfigurationBuilder;
@@ -20,8 +22,11 @@ import org.infinispan.persistence.mongodb.configuration.MongoDBStoreConfiguratio
  * @author Gabriel Francisco &lt;gabfssilva@gmail.com&gt;
  * @author gustavonalle
  */
-@Namespace(uri = "urn:infinispan:store:mongodb:9.4", root = "mongodbStore")
-@Namespace(root = "mongodbStore")
+@Namespaces(value = {
+	@Namespace(uri = "urn:infinispan:store:mongodb:*", root = "mongodb-store"),
+	//@Namespace(uri = "urn:infinispan:store:mongodb:13.0.8", root = "mongodb-store"),
+	@Namespace(root = "mongodb-store")
+})
 public class MongoDBCacheStoreConfigurationParser implements ConfigurationParser {
 
    @Override
@@ -49,7 +54,7 @@ public class MongoDBCacheStoreConfigurationParser implements ConfigurationParser
    private void parseMongoDBStore(ConfigurationReader reader, PersistenceConfigurationBuilder persistenceConfigurationBuilder) {
       MongoDBStoreConfigurationBuilder builder = new MongoDBStoreConfigurationBuilder(persistenceConfigurationBuilder);
 
-      while (reader.hasNext()) {
+      while (reader.inTag()) {
          Element element = Element.forName(reader.getLocalName());
          switch (element) {
             case CONNECTION: {

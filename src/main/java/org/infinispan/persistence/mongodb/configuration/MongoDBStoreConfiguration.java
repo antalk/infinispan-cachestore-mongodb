@@ -42,4 +42,11 @@ public class MongoDBStoreConfiguration extends AbstractStoreConfiguration {
    public String getConnectionURI() {
       return connectionURI;
    }
+   
+   @Override
+	public boolean segmented() {
+		return false;
+	}
+   
+
 }

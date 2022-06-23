@@ -1,14 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<infinispan>
-    <cache-container>
+<infinispan
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="urn:infinispan:config:13.0 https://www.infinispan.org/schemas/infinispan-config-13.0.xsd"
+        xmlns="urn:infinispan:config:13.0">
+	<cache-container>
+		<metrics accurate-size="true"/>
         <local-cache name="cache">
             <persistence passivation="false">
-                <mongodbStore xmlns="urn:infinispan:store:mongodb:9.4">
+                <mongodb-store xmlns="urn:infinispan:store:mongodb:13.0.8">
                     <connection
                             uri="mongodb://localhost:27017/infinispan_test_database?w=0&amp;connectTimeoutMS=2000"
                             collection="infinispan_cachestore"/>
                     <write-behind />
-                </mongodbStore>
+                </mongodb-store>
             </persistence>
         </local-cache>
     </cache-container>

@@ -37,7 +37,6 @@ import net.jcip.annotations.ThreadSafe;
  * @author Gabriel Francisco &lt;gabfssilva@gmail.com&gt;
  */
 @ThreadSafe
-@Store
 @ConfiguredBy(MongoDBStoreConfiguration.class)
 public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
    private InitializationContext context;
@@ -107,48 +106,12 @@ public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
    		});
    	}
    	
-   
-   	/*
-   @Override
-   public void process(final KeyFilter<? super K> filter, final CacheLoaderTask<K, V> task, Executor executor, boolean fetchValue, boolean fetchMetadata) {
-      ExecutorAllCompletionService eacs = new ExecutorAllCompletionService(executor);
-      final TaskContextImpl taskContext = new TaskContextImpl();
-
-      //A while loop since we have to hit the db again for paging.
-      boolean shouldContinue = true;
-      byte[] id = null;
-      while (shouldContinue) {
-         final List<MongoDBEntry<K, V>> entries = cache.getPagedEntries(id);
-         shouldContinue = !entries.isEmpty();
-         if (taskContext.isStopped()) {
-            break;
-         }
-         if (shouldContinue) {
-            eacs.submit(() -> {
-               for (final MongoDBEntry<K, V> entry : entries) {
-                  if (taskContext.isStopped()) {
-                     break;
-                  }
-                  final K marshalledKey = (K) toObject(entry.getKeyBytes());
-                  if (filter == null || filter.accept(marshalledKey)) {
-                     final MarshallableEntry<K, V> marshalledEntry = getMarshalledEntry(entry);
-                     if (marshalledEntry != null) {
-                        task.processEntry(marshalledEntry, taskContext);
-                     }
-                  }
-               }
-               return null;
-            });
-            //get last key so we can get more entries.
-            id = entries.get(entries.size() - 1).getKeyBytes();
-         }
-      }
-      eacs.waitUntilAllCompleted();
-      if (eacs.isExceptionThrown()) {
-         throw new PersistenceException("Execution exception!", eacs.getFirstException());
-      }
-
-   }*/
+   	@Override
+    public  CompletionStage<Long> approximateSize(IntSet segments) {
+    	return size(segments);
+    }
+ 
+  
 
    @Override
    public CompletionStage<Long> size(IntSet segments) {

@@ -4,9 +4,9 @@
         attributeFormDefault="unqualified"
         elementFormDefault="qualified"
         version="1.0"
-        targetNamespace="urn:infinispan:store:mongodb:9.4">
+        targetNamespace="urn:infinispan:store:mongodb:13.0.8">
 
-    <xs:complexType name="mongodbStore">
+    <xs:complexType name="mongodb-store">
         <xs:annotation>
             <xs:documentation>The connection information of the MongoDB server instance.</xs:documentation>
         </xs:annotation>
