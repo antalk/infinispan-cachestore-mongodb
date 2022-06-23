@@ -2,7 +2,6 @@ package org.infinispan.persistence.mongodb.store;
 
 import java.io.IOException;
 import java.util.EnumSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
@@ -10,7 +9,6 @@ import java.util.function.Predicate;
 
 import org.infinispan.commons.configuration.ConfiguredBy;
 import org.infinispan.commons.marshall.Marshaller;
-import org.infinispan.commons.persistence.Store;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.metadata.Metadata;
 import org.infinispan.persistence.mongodb.cache.MongoDBCache;
@@ -29,7 +27,7 @@ import io.reactivex.rxjava3.processors.UnicastProcessor;
 import net.jcip.annotations.ThreadSafe;
 
 /**
- * AdvancedLoadWriteStore implementation based on MongoDB. <br/>
+ * NonBlockingStore implementation based on MongoDB. <br/>
  * This class is fully thread safe
  *
  * @param <K>

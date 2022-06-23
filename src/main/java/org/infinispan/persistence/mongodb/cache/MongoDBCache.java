@@ -1,8 +1,8 @@
 package org.infinispan.persistence.mongodb.cache;
 
-import org.infinispan.persistence.mongodb.store.MongoDBEntry;
-
 import java.util.List;
+
+import org.infinispan.persistence.mongodb.store.MongoDBEntry;
 
 /**
  * A simple Cache interface

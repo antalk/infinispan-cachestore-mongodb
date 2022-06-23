@@ -1,10 +1,10 @@
 package org.infinispan.persistence.mongodb.configuration;
 
+import static org.testng.Assert.assertTrue;
+
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.testng.annotations.Test;
-
-import static org.testng.Assert.assertTrue;
 
 /**
  * Test for MongoDBStoreConfigurationBuilder

@@ -1,5 +1,12 @@
 package org.infinispan.persistence.mongodb.configuration.parser;
 
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertTrue;
+
+import java.io.IOException;
+import java.util.List;
+
 import org.infinispan.configuration.cache.StoreConfiguration;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.persistence.mongodb.configuration.MongoDBStoreConfiguration;
@@ -8,11 +15,6 @@ import org.infinispan.test.TestingUtil;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
-
-import java.io.IOException;
-import java.util.List;
-
-import static org.testng.Assert.*;
 
 /**
  * Test for MongoDBCacheStoreConfigurationParserTest

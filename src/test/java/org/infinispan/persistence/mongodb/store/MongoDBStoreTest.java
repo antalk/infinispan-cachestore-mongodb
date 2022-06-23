@@ -6,7 +6,6 @@ import org.infinispan.persistence.BaseNonBlockingStoreTest;
 import org.infinispan.persistence.mongodb.configuration.MongoDBStoreConfigurationBuilder;
 import org.infinispan.persistence.spi.NonBlockingStore;
 import org.testng.annotations.AfterMethod;
-import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 /**

@@ -3,7 +3,6 @@ package org.infinispan.persistence.mongodb.configuration.parser;
 import static org.infinispan.commons.util.StringPropertyReplacer.replaceProperties;
 
 import org.infinispan.commons.configuration.io.ConfigurationReader;
-import org.infinispan.commons.configuration.io.NamingStrategy;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.configuration.cache.PersistenceConfigurationBuilder;
 import org.infinispan.configuration.parsing.ConfigurationBuilderHolder;
