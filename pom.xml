@@ -92,16 +92,6 @@
     </properties>
 
     <dependencies>
-    
-    <!-- https://mvnrepository.com/artifact/org.infinispan/infinispan-cachestore-jdbc --> 
-		<dependency>
-		    <groupId>org.infinispan</groupId>
-		    <artifactId>infinispan-cachestore-jdbc</artifactId>
-		    <version>13.0.10.Final</version>
-		    <scope>test</scope>
-		</dependency>
-    
-    
         <dependency>
             <groupId>org.infinispan</groupId>
             <artifactId>infinispan-core</artifactId>
