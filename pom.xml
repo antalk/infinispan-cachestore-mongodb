@@ -93,7 +93,7 @@
 
     <dependencies>
     
-    <!-- https://mvnrepository.com/artifact/org.infinispan/infinispan-cachestore-jdbc --> 
+    	<!-- https://mvnrepository.com/artifact/org.infinispan/infinispan-cachestore-jdbc --> 
 		<dependency>
 		    <groupId>org.infinispan</groupId>
 		    <artifactId>infinispan-cachestore-jdbc</artifactId>
@@ -101,7 +101,12 @@
 		    <scope>test</scope>
 		</dependency>
     
-    
+    	<dependency>
+			<groupId>org.slf4j</groupId>
+			<artifactId>slf4j-api</artifactId>
+			<scope>provided</scope>
+			<version>1.7.4</version>
+		</dependency>
         <dependency>
             <groupId>org.infinispan</groupId>
             <artifactId>infinispan-core</artifactId>

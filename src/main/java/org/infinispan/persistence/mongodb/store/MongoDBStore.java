@@ -1,6 +1,7 @@
 package org.infinispan.persistence.mongodb.store;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
@@ -23,8 +24,11 @@ import org.infinispan.persistence.spi.NonBlockingStore;
 import org.infinispan.persistence.spi.PersistenceException;
 import org.infinispan.util.concurrent.BlockingManager;
 import org.reactivestreams.Publisher;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import io.reactivex.rxjava3.core.Flowable;
+import io.reactivex.rxjava3.internal.operators.flowable.FlowableAll;
 import io.reactivex.rxjava3.processors.UnicastProcessor;
 import net.jcip.annotations.ThreadSafe;
 
@@ -37,9 +41,13 @@ import net.jcip.annotations.ThreadSafe;
  * @author Gabriel Francisco &lt;gabfssilva@gmail.com&gt;
  */
 @ThreadSafe
-@Store
 @ConfiguredBy(MongoDBStoreConfiguration.class)
 public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
+	
+	
+	private static Logger LOG = LoggerFactory.getLogger(MongoDBStore.class);
+	
+	
    private InitializationContext context;
 
    private MongoDBCache<K, V> cache;
@@ -76,6 +84,10 @@ public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
    	
    	@Override
    	public Publisher<MarshallableEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter, boolean includeValues) {
+   		LOG.info("publishing entries for cache {}", cache);
+   		
+   		/**
+   		
    		return Flowable.defer(() -> {
    			UnicastProcessor<MarshallableEntry<K, V>> unicastProcessor = UnicastProcessor.create();
    			blockingManager.runBlocking(() -> {
@@ -105,6 +117,33 @@ public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
    			},"mongodbstore-publish");
    			return unicastProcessor;
    		});
+   		**/
+   		
+   		List<MarshallableEntry<K, V>> items = new ArrayList<>();
+   		
+   	//A while loop since we have to hit the db again for paging.
+        boolean shouldContinue = true;
+        byte[] id = null;
+        while (shouldContinue) {
+           final List<MongoDBEntry<K, V>> entries = cache.getPagedEntries(id);
+           shouldContinue = !entries.isEmpty();
+           if (shouldContinue) {
+	             for (final MongoDBEntry<K, V> entry : entries) {
+	                final K marshalledKey = (K) toObject(entry.getKeyBytes());
+	                if (filter == null || filter.test(marshalledKey)) {
+	                   final MarshallableEntry<K, V> marshalledEntry = getMarshalledEntry(entry);
+	                   if (marshalledEntry != null) {
+	                	   items.add(marshalledEntry);
+	                   }
+	                }
+	             }
+	             //get last key so we can get more entries.
+	             id = entries.get(entries.size() - 1).getKeyBytes();
+           }
+        }
+   		
+   		return new FlowableAll<MarshallableEntry<K, V>>(Flowable.fromIterable(items), null).source();
+   		
    	}
    	
    
@@ -152,6 +191,8 @@ public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
 
    @Override
    public CompletionStage<Long> size(IntSet segments) {
+	   LOG.info("getSize for cache {}", cache);
+	   
       return blockingManager.supplyBlocking(() -> {
     	  return new Long(cache.size());
     	  
@@ -171,29 +212,31 @@ public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
    	@Override
    	public Publisher<MarshallableEntry<K, V>> purgeExpired() {
    		
-   		return Flowable.defer(() -> {
-   			UnicastProcessor<MarshallableEntry<K, V>> unicastProcessor = UnicastProcessor.create();
-   			blockingManager.runBlocking(() -> {
+   		LOG.info("purge expired for cache {}", cache);
    		
-   				byte[] lastKey = null;
-   		        boolean shouldContinue = true;
-   		        while (shouldContinue) {
-   		           List<MongoDBEntry<K, V>> expired = cache.removeExpiredData(lastKey);
-   		           expired.forEach(kvMongoDBEntry -> unicastProcessor.onNext(getMarshalledEntry(kvMongoDBEntry)));
-   		           shouldContinue = !expired.isEmpty();
-   		           if (shouldContinue) {
-   		              lastKey = expired.get(expired.size() - 1).getKeyBytes();
-   		           }
-   		        }
-   		        unicastProcessor.onComplete();
-   			},"mongodbstore-purge");
-   			return unicastProcessor;
-   		});
+   		List<MarshallableEntry<K, V>> purgedItems = new ArrayList<>();
+
+   		
+   		byte[] lastKey = null;
+        boolean shouldContinue = true;
+        while (shouldContinue) {
+           List<MongoDBEntry<K, V>> expired = cache.removeExpiredData(lastKey);
+           expired.forEach(kvMongoDBEntry -> purgedItems.add(getMarshalledEntry(kvMongoDBEntry)));
+           shouldContinue = !expired.isEmpty();
+           if (shouldContinue) {
+              lastKey = expired.get(expired.size() - 1).getKeyBytes();
+           }
+        }
+   		return new FlowableAll<MarshallableEntry<K, V>>(Flowable.fromIterable(purgedItems), null).source();
+
    }
 
    	
    	@Override
 	public CompletionStage<Void> write(int segment, MarshallableEntry<? extends K, ? extends V> entry) {
+   		
+   		LOG.info("write entry for cache {}", cache);
+   		
    		return blockingManager.runBlocking(() -> {
    			MongoDBEntry.Builder<K, V> mongoDBEntryBuilder = MongoDBEntry.builder();
    			
@@ -218,6 +261,9 @@ public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
 
    @Override
    public CompletionStage<Boolean> delete(int segment, Object key) {
+	   
+	   LOG.info("delete entry for cache {}", cache);
+	   
       return blockingManager.supplyBlocking(() -> {
     	  return cache.remove(toByteArray(key));
       },"mongodbstore-delete");
@@ -226,6 +272,9 @@ public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
 
    @Override
    public CompletionStage<MarshallableEntry<K, V>> load(int segment, Object key) {
+	   
+	   LOG.info("load entry for cache {}", cache);
+	   
       return blockingManager.supplyBlocking(() -> {
     	  return load(key, false);
       },"mongodbstore-load");

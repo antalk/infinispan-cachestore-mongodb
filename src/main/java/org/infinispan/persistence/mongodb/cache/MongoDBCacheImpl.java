@@ -21,6 +21,7 @@ import org.infinispan.persistence.mongodb.store.MongoDBEntry.ExpirationUnit;
 import com.mongodb.BasicDBObject;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
+import com.mongodb.MongoWriteException;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
@@ -164,16 +165,29 @@ public class MongoDBCacheImpl<K, V> implements MongoDBCache<K, V> {
               .append("created", entry.getExpiryTime().getCreated())
               .append("lastaccess", entry.getExpiryTime().getLastAccess());
              
-      if (containsKey(entry.getKeyBytes())) {
-         collection.replaceOne(eq("_id", entry.getKeyBytes()), document);
-
-      } else {
-         collection.insertOne(document);
+      
+      //Document d = collection.find(eq("_id", document.get("_id"))).first();
+      try {
+    	  collection.insertOne(document);
+      } catch(MongoWriteException e) {
+          if (e.getCode() == 11000) {
+              // duplicate
+        	  collection.replaceOne(eq("_id", entry.getKeyBytes()), document);
+          } else {
+        	  throw e;
+          }
       }
+      
    }
 
    @Override
    public void stop() {
       mongoClient.close();
    }
+   
+   @Override
+	public String toString() {
+	   return mongoCacheConfiguration.collection();
+	}
+   
 }
