@@ -3,15 +3,14 @@ package org.infinispan.persistence.mongodb.store;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.EnumSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Predicate;
 
 import org.infinispan.commons.configuration.ConfiguredBy;
 import org.infinispan.commons.marshall.Marshaller;
-import org.infinispan.commons.persistence.Store;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.metadata.Metadata;
 import org.infinispan.persistence.mongodb.cache.MongoDBCache;
@@ -22,14 +21,12 @@ import org.infinispan.persistence.spi.InitializationContext;
 import org.infinispan.persistence.spi.MarshallableEntry;
 import org.infinispan.persistence.spi.NonBlockingStore;
 import org.infinispan.persistence.spi.PersistenceException;
-import org.infinispan.util.concurrent.BlockingManager;
 import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.reactivex.rxjava3.core.Flowable;
 import io.reactivex.rxjava3.internal.operators.flowable.FlowableAll;
-import io.reactivex.rxjava3.processors.UnicastProcessor;
 import net.jcip.annotations.ThreadSafe;
 
 /**
@@ -44,16 +41,13 @@ import net.jcip.annotations.ThreadSafe;
 @ConfiguredBy(MongoDBStoreConfiguration.class)
 public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
 	
-	
-	private static Logger LOG = LoggerFactory.getLogger(MongoDBStore.class);
+	private static Logger logger = LoggerFactory.getLogger(MongoDBStore.class);
 	
 	
    private InitializationContext context;
 
    private MongoDBCache<K, V> cache;
    private MongoDBStoreConfiguration configuration;
-
-   private BlockingManager blockingManager;
    
    @Override
    public Set<Characteristic> characteristics() {
@@ -62,8 +56,7 @@ public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
    
    	@Override
 	public CompletionStage<Void> start(InitializationContext ctx) {
-   		this.blockingManager = ctx.getBlockingManager();
-   		return blockingManager.runBlocking(() -> {
+   		return ctx.getBlockingManager().runBlocking(() -> {
    			this.context = ctx;
    			this.configuration = ctx.getConfiguration();
    			try {
@@ -80,11 +73,9 @@ public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
          }, "mongodbstore-start");
 	}
    	
-   	
-   	
    	@Override
    	public Publisher<MarshallableEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter, boolean includeValues) {
-   		LOG.info("publishing entries for cache {}", cache);
+   		logger.debug("publishing entries for cache {} with filter {}", cache, filter);
    		
    		/**
    		
@@ -143,7 +134,6 @@ public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
         }
    		
    		return new FlowableAll<MarshallableEntry<K, V>>(Flowable.fromIterable(items), null).source();
-   		
    	}
    	
    
@@ -191,28 +181,21 @@ public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
 
    @Override
    public CompletionStage<Long> size(IntSet segments) {
-	   LOG.info("getSize for cache {}", cache);
-	   
-      return blockingManager.supplyBlocking(() -> {
-    	  return new Long(cache.size());
-    	  
-      }, "mongodbstore-size");
+	   logger.debug("getSize for cache {}", cache);
+	   return CompletableFuture.supplyAsync(() ->  Long.valueOf(cache.size()));
    }
 
    @Override
 	public CompletionStage<Void> clear() {
-	   return blockingManager.runBlocking(() -> {
-	    	  cache.clear();
-	    	  
-	   }, "mongodbstore-clear");
+	   cache.clear();
+	   return CompletableFuture.completedFuture(null);
 	}
   
    
 
    	@Override
    	public Publisher<MarshallableEntry<K, V>> purgeExpired() {
-   		
-   		LOG.info("purge expired for cache {}", cache);
+   		logger.debug("purge expired items for cache {}", cache);
    		
    		List<MarshallableEntry<K, V>> purgedItems = new ArrayList<>();
 
@@ -234,50 +217,41 @@ public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
    	
    	@Override
 	public CompletionStage<Void> write(int segment, MarshallableEntry<? extends K, ? extends V> entry) {
+   		logger.debug("write entry {} for cache {}", entry, cache);
    		
-   		LOG.info("write entry for cache {}", cache);
-   		
-   		return blockingManager.runBlocking(() -> {
-   			MongoDBEntry.Builder<K, V> mongoDBEntryBuilder = MongoDBEntry.builder();
-   			
-   			mongoDBEntryBuilder
-   	              .keyBytes(toByteArray(entry.getKey()))
-   	              .valueBytes(toByteArray(entry.getValue()))
-   	              .expiryTime(new ExpirationUnit(entry.expiryTime(),entry.lastUsed(),entry.created()));
+   		MongoDBEntry.Builder<K, V> mongoDBEntryBuilder = MongoDBEntry.builder();
+			
+			mongoDBEntryBuilder
+	              .keyBytes(toByteArray(entry.getKey()))
+	              .valueBytes(toByteArray(entry.getValue()))
+	              .expiryTime(new ExpirationUnit(entry.expiryTime(),entry.lastUsed(),entry.created()));
 
-   			if (entry.getMetadata() != null) {
-   				mongoDBEntryBuilder.metadataBytes(toByteArray(entry.getMetadata()));
-   			}
-   			
-   			
-   			MongoDBEntry<K, V> mongoDBEntry = mongoDBEntryBuilder.create();
+			if (entry.getMetadata() != null) {
+				mongoDBEntryBuilder.metadataBytes(toByteArray(entry.getMetadata()));
+			}
+			
+			
+			MongoDBEntry<K, V> mongoDBEntry = mongoDBEntryBuilder.create();
 
-   			cache.put(mongoDBEntry);
+			cache.put(mongoDBEntry);
    		
-   		},"mongodbstore-write");
+   		
+   		return CompletableFuture.completedFuture(null);
    		
 	}
 
 
    @Override
    public CompletionStage<Boolean> delete(int segment, Object key) {
-	   
-	   LOG.info("delete entry for cache {}", cache);
-	   
-      return blockingManager.supplyBlocking(() -> {
-    	  return cache.remove(toByteArray(key));
-      },"mongodbstore-delete");
+	   logger.debug("delete key {} for cache {}", key, cache);
+	   return CompletableFuture.supplyAsync(() -> cache.remove(toByteArray(key)));
    }
 
 
    @Override
    public CompletionStage<MarshallableEntry<K, V>> load(int segment, Object key) {
-	   
-	   LOG.info("load entry for cache {}", cache);
-	   
-      return blockingManager.supplyBlocking(() -> {
-    	  return load(key, false);
-      },"mongodbstore-load");
+	   logger.debug("load key {} for cache {}", key, cache);
+	   return CompletableFuture.supplyAsync(()-> load(key, false));
    }
 
    private MarshallableEntry<K, V> load(Object key, boolean binaryData) {
@@ -286,8 +260,6 @@ public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
       if (mongoDBEntry == null) {
          return null;
       }
-
-      K k = mongoDBEntry.getKey(marshaller());
       V v = mongoDBEntry.getValue(marshaller());
 
       Metadata metadata = null;
@@ -328,9 +300,8 @@ public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
 
    @Override
    public CompletionStage<Void> stop() {
-      return blockingManager.runBlocking(() -> {
-    	  cache.stop();
-      },"mongodbstore-stop");
+	   cache.stop();
+	   return CompletableFuture.completedFuture(null);
    }
 
    private boolean isExpired(MongoDBEntry result) {
@@ -343,22 +314,18 @@ public class MongoDBStore<K, V> implements NonBlockingStore<K, V> {
    private Object toObject(byte[] bytes) {
       try {
          return marshaller().objectFromByteBuffer(bytes);
-      } catch (IOException e) {
+      } catch (IOException | ClassNotFoundException e) {
          e.printStackTrace();
-      } catch (ClassNotFoundException e) {
-         e.printStackTrace();
-      }
+      } 
       return null;
    }
 
    private byte[] toByteArray(Object obj) {
       try {
          return marshaller().objectToByteBuffer(obj);
-      } catch (IOException e) {
+      } catch (IOException | InterruptedException e) {
          e.printStackTrace();
-      } catch (InterruptedException e) {
-         e.printStackTrace();
-      }
+      } 
       return null;
    }
 
